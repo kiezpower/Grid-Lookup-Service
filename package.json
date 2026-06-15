@@ -1,0 +1,19 @@
+{
+  "name": "grid-lookup-service",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter '@grid-lookup/backend' dev",
+    "build": "bun run --filter '*' build",
+    "typecheck": "bun run --filter '*' typecheck",
+    "db:up": "docker-compose up -d",
+    "db:down": "docker-compose down",
+    "db:reset": "docker-compose down -v && docker-compose up -d"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

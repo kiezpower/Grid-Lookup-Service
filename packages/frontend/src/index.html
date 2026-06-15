@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Netzbetreiber-Suche</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f5;
+      color: #1a1a1a;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 3rem 1rem;
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+
+    .subtitle {
+      color: #666;
+      font-size: 0.9rem;
+      margin-bottom: 2rem;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      padding: 2rem;
+      width: 100%;
+      max-width: 520px;
+    }
+
+    .form-row {
+      display: flex;
+      gap: 0.75rem;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      padding: 0.65rem 1rem;
+      border: 1.5px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    input[type="text"]:focus { border-color: #4f46e5; }
+
+    button {
+      padding: 0.65rem 1.4rem;
+      background: #4f46e5;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    button:hover { background: #4338ca; }
+    button:disabled { background: #a5b4fc; cursor: default; }
+
+    #result { margin-top: 1.5rem; }
+
+    .error {
+      color: #dc2626;
+      font-size: 0.9rem;
+      padding: 0.75rem 1rem;
+      background: #fef2f2;
+      border-radius: 8px;
+    }
+
+    .operator-card {
+      border: 1.5px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 0.75rem;
+    }
+
+    .operator-card + .operator-card { margin-top: 0.5rem; }
+
+    .operator-name {
+      font-weight: 600;
+      font-size: 1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .operator-meta {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.2rem 0.75rem;
+      font-size: 0.85rem;
+      color: #555;
+    }
+
+    .operator-meta dt { color: #888; }
+
+    .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.1rem 0.5rem;
+      border-radius: 99px;
+      margin-bottom: 0.75rem;
+    }
+
+    .badge-unique { background: #dcfce7; color: #15803d; }
+    .badge-multi  { background: #fef9c3; color: #854d0e; }
+  </style>
+</head>
+<body>
+  <h1>Netzbetreiber-Suche</h1>
+  <p class="subtitle">Zuständigen Stromnetzbetreiber per Postleitzahl finden</p>
+
+  <div class="card">
+    <div class="form-row">
+      <input
+        type="text"
+        id="plz"
+        placeholder="PLZ eingeben (z.B. 10115)"
+        maxlength="5"
+        pattern="\d{5}"
+        inputmode="numeric"
+      />
+      <button id="search-btn" onclick="lookup()">Suchen</button>
+    </div>
+    <div id="result"></div>
+  </div>
+
+  <script>
+    const input = document.getElementById("plz");
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") lookup(); });
+
+    async function lookup() {
+      const plz = input.value.trim();
+      const resultEl = document.getElementById("result");
+      const btn = document.getElementById("search-btn");
+
+      if (!/^\d{5}$/.test(plz)) {
+        resultEl.innerHTML = '<p class="error">Bitte eine gültige 5-stellige PLZ eingeben.</p>';
+        return;
+      }
+
+      btn.disabled = true;
+      resultEl.innerHTML = "";
+
+      try {
+        const res = await fetch(`/api/v1/grid-operator/lookup/${plz}`);
+        const data = await res.json();
+
+        if (!res.ok) {
+          resultEl.innerHTML = `<p class="error">${data.message ?? "Fehler bei der Anfrage."}</p>`;
+          return;
+        }
+
+        if (data.match === "unique") {
+          resultEl.innerHTML = renderOperators("unique", [data.operator]);
+        } else {
+          resultEl.innerHTML = renderOperators("multi", data.operators);
+        }
+      } catch {
+        resultEl.innerHTML = '<p class="error">Server nicht erreichbar.</p>';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function renderOperators(match, operators) {
+      const label = match === "unique" ? "Eindeutig" : `${operators.length} Treffer`;
+      const badgeClass = match === "unique" ? "badge-unique" : "badge-multi";
+      const cards = operators.map(op => `
+        <div class="operator-card">
+          <div class="operator-name">${esc(op.name)}</div>
+          <dl class="operator-meta">
+            ${op.mastrNummer ? `<dt>MaStR-Nr.</dt><dd>${esc(op.mastrNummer)}</dd>` : ""}
+            ${op.bdewId      ? `<dt>BDEW-ID</dt><dd>${esc(op.bdewId)}</dd>` : ""}
+            ${op.city        ? `<dt>Ort</dt><dd>${[op.zipCode, op.city].filter(Boolean).map(esc).join(" ")}</dd>` : ""}
+            ${op.email       ? `<dt>E-Mail</dt><dd><a href="mailto:${esc(op.email)}">${esc(op.email)}</a></dd>` : ""}
+            ${op.website     ? `<dt>Website</dt><dd><a href="${esc(op.website)}" target="_blank">${esc(op.website)}</a></dd>` : ""}
+            ${op.isClosedGrid ? `<dt>Typ</dt><dd>Geschlossenes Verteilernetz</dd>` : ""}
+          </dl>
+        </div>
+      `).join("");
+
+      return `<span class="badge ${badgeClass}">${label}</span>${cards}`;
+    }
+
+    function esc(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+  </script>
+</body>
+</html>

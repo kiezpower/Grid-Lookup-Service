@@ -1,0 +1,52 @@
+{
+  "SNB941690671609": {
+    "name": "E.DIS Netz GmbH",
+    "email": "marktkommunikation@edis.de",
+    "fallback_email": "einspeisung@edis.de"
+  },
+  "SNB921897286493": {
+    "name": "Westnetz GmbH",
+    "email": "marktkommunikation@westnetz.de",
+    "fallback_email": "einspeisepartner@westnetz.de"
+  },
+  "SNB916269213931": {
+    "name": "Mitteldeutsche Netzgesellschaft Strom mbH (MITNETZ)",
+    "email": "marktkommunikation@mitnetz-strom.de",
+    "fallback_email": "einspeisung@mitnetz-strom.de"
+  },
+  "SNB990362338043": {
+    "name": "Avacon Netz GmbH",
+    "email": "marktkommunikation@avacon-netz.de",
+    "fallback_email": "einspeisung@avacon-netz.de"
+  },
+  "SNB973875583315": {
+    "name": "N-ERGIE Netz GmbH",
+    "email": "marktkommunikation@n-ergie-netz.de",
+    "fallback_email": "stromnetz@n-ergie-netz.de"
+  },
+  "SNB969473762610": {
+    "name": "SWM Infrastruktur GmbH & Co. KG (München)",
+    "email": "marktkommunikation@swm-infrastruktur.de",
+    "fallback_email": "netzanschluss@swm-infrastruktur.de"
+  },
+  "SNB928759560869": {
+    "name": "WEMAG Netz GmbH",
+    "email": "marktkommunikation@wemag-netz.de",
+    "fallback_email": "netzanschluss@wemag-netz.de"
+  },
+  "SNB929881052512": {
+    "name": "Westfalen Weser Netz GmbH",
+    "email": "marktkommunikation@ww-netz.com",
+    "fallback_email": "einspeiser@ww-netz.com"
+  },
+  "SNB970821959712": {
+    "name": "TEN Thüringer Energienetze GmbH & Co. KG",
+    "email": "marktkommunikation@thueringer-energienetze.de",
+    "fallback_email": "einspeisung@thueringer-energienetze.de"
+  },
+  "SNB968295079586": {
+    "name": "Hamburger Energienetze GmbH",
+    "email": "marktkommunikation@hamburger-energienetze.de",
+    "fallback_email": "einspeisung@hamburger-energienetze.de"
+  }
+}
