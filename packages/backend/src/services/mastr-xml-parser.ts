@@ -42,12 +42,18 @@ function stripXmlEntities(value: string): string {
 }
 
 function isNaturalPerson(personType: string | null): boolean {
-  return personType === "NatuerlichePerson";
+  // Text format (old exports): "NatuerlichePerson"
+  // Numeric format (export v26+): 518 = Natürliche Person, 517 = Juristische Person
+  return personType === "NatuerlichePerson" || personType === "518";
 }
 
 function hasExactStromnetzbetreiberRole(entry: string): boolean {
-  return /<(?:Marktfunktion|Marktrolle|Funktionsart)>\s*Stromnetzbetreiber\s*<\/(?:Marktfunktion|Marktrolle|Funktionsart)>/i.test(
-    entry,
+  // Text format (old exports): "Stromnetzbetreiber" in Marktfunktion/Marktrolle
+  // Numeric format (export v26+): SNB-prefixed MaStrNummer is the definitive indicator
+  // — the MaStrNummer check in extractGridOperatorInsert covers this case
+  return (
+    /<(?:Marktfunktion|Marktrolle|Funktionsart)>\s*Stromnetzbetreiber\s*<\/(?:Marktfunktion|Marktrolle|Funktionsart)>/i.test(entry) ||
+    /<MastrNummer>\s*SNB/i.test(entry)
   );
 }
 

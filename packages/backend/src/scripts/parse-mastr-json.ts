@@ -59,9 +59,10 @@ async function streamFileFromZip(
   zipPath: string,
   fileName: string,
 ): Promise<Readable> {
-  const proc = Bun.spawn(["unzip", "-p", zipPath, fileName], {
-    stdout: "pipe",
-  });
+  const proc = Bun.spawn(
+    ["sh", "-c", `unzip -p "${zipPath}" "${fileName}" | iconv -f UTF-16 -t UTF-8 2>/dev/null || unzip -p "${zipPath}" "${fileName}"`],
+    { stdout: "pipe" },
+  );
   return Readable.from(proc.stdout);
 }
 
