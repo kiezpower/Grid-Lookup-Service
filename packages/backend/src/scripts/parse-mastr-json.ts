@@ -23,6 +23,7 @@ import type { GridOperatorInsert } from "../types/index.js";
 interface PlzEntry {
   name: string;
   mastrNummer: string;
+  plzCity?: string;
   city?: string;
   street?: string;
   houseNumber?: string;
@@ -159,6 +160,7 @@ async function parseMastrToJson(zipPath: string, outputPath: string): Promise<vo
   // Phase 3: Parse PLZ votes from EinheitenSolar using the join map
   console.log("[3/4] Parsing EinheitenSolar for PLZ votes...");
   const aggregated = new Map<string, Map<string, number>>();
+  const plzCityVotes = new Map<string, Map<string, number>>();
   await processChunkedXml(
     zipPath,
     "EinheitenSolar_*.xml",
@@ -173,6 +175,15 @@ async function parseMastrToJson(zipPath: string, outputPath: string): Promise<vo
         for (const [mastrNummer, count] of votes.entries()) {
           target.set(mastrNummer, (target.get(mastrNummer) ?? 0) + count);
         }
+      }
+      for (const { plz, city } of chunkVotes) {
+        if (!city) continue;
+        let cityMap = plzCityVotes.get(plz);
+        if (!cityMap) {
+          cityMap = new Map<string, number>();
+          plzCityVotes.set(plz, cityMap);
+        }
+        cityMap.set(city, (cityMap.get(city) ?? 0) + 1);
       }
     },
     parsePlzVotes,
@@ -193,9 +204,20 @@ async function parseMastrToJson(zipPath: string, outputPath: string): Promise<vo
     const op = operatorByMastr.get(winner.mastrNummer);
     if (!op) continue;
     matched++;
+
+    const cityMap = plzCityVotes.get(winner.plz);
+    let plzCity: string | undefined;
+    if (cityMap) {
+      let maxVotes = 0;
+      for (const [city, count] of cityMap.entries()) {
+        if (count > maxVotes) { maxVotes = count; plzCity = city; }
+      }
+    }
+
     plzMap[winner.plz] = {
       name: op.name,
       mastrNummer: op.mastrNummer,
+      ...(plzCity && { plzCity }),
       ...(op.city && { city: op.city }),
       ...(op.street && { street: op.street }),
       ...(op.houseNumber && { houseNumber: op.houseNumber }),

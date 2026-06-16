@@ -5,6 +5,7 @@ import type { GridOperatorInsert } from "../types/index.js";
 export interface PlzVote {
   plz: string;
   mastrNummer: string;
+  city?: string;
 }
 
 export interface MastrParseResult {
@@ -237,6 +238,7 @@ export async function parsePlzVotes(
       buffer = buffer.slice(end + endTag.length);
 
       const plz = extractField(entry, "Postleitzahl");
+      const city = extractField(entry, "Ort") ?? undefined;
 
       let mastrNummer: string | null = null;
       if (lokationToNetzbetreiber) {
@@ -252,7 +254,7 @@ export async function parsePlzVotes(
       }
 
       if (plz && PLZ_RE.test(plz) && mastrNummer) {
-        votes.push({ plz, mastrNummer });
+        votes.push({ plz, mastrNummer, city });
       }
     }
   }
