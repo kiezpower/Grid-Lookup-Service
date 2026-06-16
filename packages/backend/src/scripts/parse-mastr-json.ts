@@ -1,20 +1,15 @@
 #!/usr/bin/env bun
 /**
- * MaStR XML Streaming Parser with Dynamic Chunk Detection
+ * MaStR JSON Export — PLZ → Netzbetreiber mapping
  *
- * Dynamically enumerates and processes chunk files from MaStR ZIP:
- * - Marktakteure_1.xml, Marktakteure_2.xml, ...
- * - Netzanschlusspunkte_1.xml, Netzanschlusspunkte_2.xml, ...
- * - EinheitenSolar_1.xml, EinheitenSolar_2.xml, ...
+ * Runs the same XML parsing pipeline as parse-mastr.ts (phases 1–4) but
+ * writes a static JSON file instead of populating the database.
  *
- * PLZ→SNB mapping uses a two-step join:
- *   EinheitenSolar.LokationMaStRNummer → Netzanschlusspunkte.NetzbetreiberMaStRNummer
- *
- * Targets <3min processing, ~512MB RAM (NP join map holds ~5.7M entries).
+ * Output format: { [plz: string]: PlzEntry }
+ * Used to generate SEO pages per postal code on the KiezPower website.
  */
 
 import { $ } from "bun";
-import postgres from "postgres";
 import { Readable } from "stream";
 import {
   parseMarktakteure,
@@ -23,39 +18,18 @@ import {
   aggregatePlzVotes,
   selectPlzWinners,
 } from "../services/mastr-xml-parser.js";
-import { populateDatabase } from "../services/mastr-db-populator.js";
+import type { GridOperatorInsert } from "../types/index.js";
 
-async function ensureGridLookupTablesExist(): Promise<void> {
-  const databaseUrl = process.env.DATABASE_URL;
-
-  if (!databaseUrl) {
-    throw new Error("Missing DATABASE_URL environment variable");
-  }
-
-  const client = postgres(databaseUrl, {
-    max: 1,
-    idle_timeout: 5,
-    connect_timeout: 10,
-  });
-
-  try {
-    const checks = await client<
-      { tableName: string; exists: boolean }[]
-    >`select v.table_name as "tableName", to_regclass('public.' || v.table_name) is not null as "exists"
-      from (values ('grid_lookup_operators'), ('zip_operator_mapping')) as v(table_name)`;
-
-    const missing = checks
-      .filter((row) => !row.exists)
-      .map((row) => row.tableName);
-
-    if (missing.length > 0) {
-      throw new Error(
-        `Missing required grid lookup table(s): ${missing.join(", ")}. Run \"cd packages/backend && bun run db:migrate:grid-lookup\" (or \"bun run db:migrate\") first.`,
-      );
-    }
-  } finally {
-    await client.end();
-  }
+interface PlzEntry {
+  name: string;
+  mastrNummer: string;
+  city?: string;
+  street?: string;
+  houseNumber?: string;
+  zipCode?: string;
+  state?: string;
+  country?: string;
+  bdewId?: string;
 }
 
 async function enumerateChunkFiles(
@@ -65,7 +39,6 @@ async function enumerateChunkFiles(
   const result = await $`unzip -l ${zipPath}`.text();
   const lines = result.split("\n");
   const files: string[] = [];
-
   const regex = new RegExp(pattern.replace("*", "\\d+"));
 
   for (const line of lines) {
@@ -89,7 +62,6 @@ async function streamFileFromZip(
   const proc = Bun.spawn(["unzip", "-p", zipPath, fileName], {
     stdout: "pipe",
   });
-
   return Readable.from(proc.stdout);
 }
 
@@ -110,15 +82,11 @@ async function collectChunkedXml<T>(
   const allResults: T[] = [];
 
   for (const [index, fileName] of chunkFiles.entries()) {
-    console.log(
-      `   Processing chunk ${index + 1}/${chunkFiles.length}: ${fileName}`,
-    );
+    console.log(`   Processing chunk ${index + 1}/${chunkFiles.length}: ${fileName}`);
     const stream = await streamFileFromZip(zipPath, fileName);
     const results = await parser(stream, ...parserArgs);
     allResults.push(...results);
-    console.log(
-      `   ✓ Parsed ${results.length} entries (total: ${allResults.length})`,
-    );
+    console.log(`   ✓ Parsed ${results.length} entries (total: ${allResults.length})`);
   }
 
   return allResults;
@@ -141,9 +109,7 @@ async function processChunkedXml<T>(
   console.log(`📦 Found ${chunkFiles.length} chunks for ${pattern}`);
 
   for (const [index, fileName] of chunkFiles.entries()) {
-    console.log(
-      `   Processing chunk ${index + 1}/${chunkFiles.length}: ${fileName}`,
-    );
+    console.log(`   Processing chunk ${index + 1}/${chunkFiles.length}: ${fileName}`);
     const stream = await streamFileFromZip(zipPath, fileName);
     const results = await parser(stream, ...parserArgs);
     await onChunk(results);
@@ -151,28 +117,28 @@ async function processChunkedXml<T>(
   }
 }
 
-async function parseMastrZip(zipPath: string) {
+async function parseMastrToJson(zipPath: string, outputPath: string): Promise<void> {
   const startTime = Date.now();
-  console.log("=== MaStR XML Streaming Parser ===");
-  console.log(`ZIP: ${zipPath}\n`);
+  console.log("=== MaStR JSON Export ===");
+  console.log(`ZIP:    ${zipPath}`);
+  console.log(`Output: ${outputPath}\n`);
 
-  console.log("[0/5] Checking database schema...");
-  await ensureGridLookupTablesExist();
-  console.log("✓ Required tables found\n");
-
-  // Phase 1: Parse Marktakteure — SNB-prefix filter applied inside parser
-  console.log("[1/5] Parsing Marktakteure (SNB only)...");
+  // Phase 1: Parse Marktakteure — only SNB-prefixed legal entities
+  console.log("[1/4] Parsing Marktakteure (SNB only)...");
   const operators = await collectChunkedXml(
     zipPath,
     "Marktakteure_*.xml",
     parseMarktakteure,
   );
-  console.log(`✓ Grid operators (SNB-prefixed): ${operators.length}\n`);
+  console.log(`✓ Grid operators: ${operators.length}\n`);
 
-  // Phase 2: Build LokationMaStRNummer → NetzbetreiberMaStRNummer lookup map.
-  // EinheitenSolar does not carry a NetzbetreiberMaStRNummer field; the join
-  // via Netzanschlusspunkte is the only way to resolve PLZ → SNB.
-  console.log("[2/5] Building Netzanschlusspunkte join map...");
+  const operatorByMastr = new Map<string, GridOperatorInsert>();
+  for (const op of operators) {
+    operatorByMastr.set(op.mastrNummer, op);
+  }
+
+  // Phase 2: Build LokationMaStRNummer → NetzbetreiberMaStRNummer join map
+  console.log("[2/4] Building Netzanschlusspunkte join map...");
   const lokationToNetzbetreiber = new Map<string, string>();
   const npFiles = await enumerateChunkFiles(zipPath, "Netzanschlusspunkte_*.xml");
 
@@ -181,22 +147,16 @@ async function parseMastrZip(zipPath: string) {
   } else {
     console.log(`📦 Found ${npFiles.length} chunks for Netzanschlusspunkte_*.xml`);
     for (const [index, fileName] of npFiles.entries()) {
-      console.log(
-        `   Processing chunk ${index + 1}/${npFiles.length}: ${fileName}`,
-      );
+      console.log(`   Processing chunk ${index + 1}/${npFiles.length}: ${fileName}`);
       const stream = await streamFileFromZip(zipPath, fileName);
       await parseNetzanschlusspunkte(stream, lokationToNetzbetreiber);
-      console.log(
-        `   ✓ Map size: ${lokationToNetzbetreiber.size.toLocaleString()} entries`,
-      );
+      console.log(`   ✓ Map size: ${lokationToNetzbetreiber.size.toLocaleString()} entries`);
     }
   }
-  console.log(
-    `✓ Netzanschlusspunkte map: ${lokationToNetzbetreiber.size.toLocaleString()} SEL→SNB pairs\n`,
-  );
+  console.log(`✓ Join map: ${lokationToNetzbetreiber.size.toLocaleString()} SEL→SNB pairs\n`);
 
   // Phase 3: Parse PLZ votes from EinheitenSolar using the join map
-  console.log("[3/5] Parsing EinheitenSolar for PLZ votes...");
+  console.log("[3/4] Parsing EinheitenSolar for PLZ votes...");
   const aggregated = new Map<string, Map<string, number>>();
   await processChunkedXml(
     zipPath,
@@ -219,21 +179,40 @@ async function parseMastrZip(zipPath: string) {
     ["NetzbetreiberMaStRNummer", "NetzbetreiberMastrNummer"],
     lokationToNetzbetreiber,
   );
-  console.log(`✓ Unique PLZs covered: ${aggregated.size}\n`);
+  console.log(`✓ Unique PLZs: ${aggregated.size}\n`);
 
-  // Phase 4: Select winners
-  console.log("[4/5] Selecting winners...");
+  // Phase 4: Select winner per PLZ and build JSON output
+  console.log("[4/4] Selecting winners and writing JSON...");
   const winners = selectPlzWinners(aggregated);
-  console.log(`✓ Winners selected: ${winners.length}\n`);
 
-  // Phase 5: Populate database
-  console.log("[5/5] Populating database...");
-  await populateDatabase(operators, winners);
+  const plzMap: Record<string, PlzEntry> = {};
+  let matched = 0;
+
+  for (const winner of winners) {
+    const op = operatorByMastr.get(winner.mastrNummer);
+    if (!op) continue;
+    matched++;
+    plzMap[winner.plz] = {
+      name: op.name,
+      mastrNummer: op.mastrNummer,
+      ...(op.city && { city: op.city }),
+      ...(op.street && { street: op.street }),
+      ...(op.houseNumber && { houseNumber: op.houseNumber }),
+      ...(op.zipCode && { zipCode: op.zipCode }),
+      ...(op.state && { state: op.state }),
+      ...(op.country && { country: op.country }),
+      ...(op.bdewId && { bdewId: op.bdewId }),
+    };
+  }
+
+  await Bun.write(outputPath, JSON.stringify(plzMap, null, 2));
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   const memUsageMB = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
+  const fileSizeKB = ((await Bun.file(outputPath).size) / 1024).toFixed(0);
 
-  console.log(`\n⏱️  Processing time: ${elapsed}s`);
+  console.log(`✓ Written ${matched} PLZ entries to ${outputPath} (${fileSizeKB} KB)\n`);
+  console.log(`⏱️  Processing time: ${elapsed}s`);
   console.log(`💾 Memory usage: ${memUsageMB} MB`);
 
   if (parseFloat(elapsed) > 180) {
@@ -242,37 +221,28 @@ async function parseMastrZip(zipPath: string) {
   if (parseFloat(memUsageMB) > 512) {
     console.warn("⚠️  Exceeded 512MB RAM target!");
   }
-
-  return {
-    operators,
-    plzAggregation: aggregated,
-    winners,
-    metrics: {
-      timeSeconds: parseFloat(elapsed),
-      memoryMB: parseFloat(memUsageMB),
-    },
-  };
 }
 
 const zipPath = process.argv[2] || process.env.MASTR_ZIP_PATH;
+const outputPath =
+  process.argv[3] || process.env.MASTR_JSON_OUTPUT || "./plz-netzbetreiber.json";
 
 if (!zipPath) {
-  console.error("Usage: bun run scripts/parse-mastr.ts <path-to-mastr.zip>");
   console.error(
-    "   or: MASTR_ZIP_PATH=/path/to/mastr.zip bun run scripts/parse-mastr.ts",
+    "Usage: bun run src/scripts/parse-mastr-json.ts <path-to-mastr.zip> [output.json]",
+  );
+  console.error(
+    "   or: MASTR_ZIP_PATH=/path/to/mastr.zip bun run src/scripts/parse-mastr-json.ts",
   );
   process.exit(1);
 }
 
-parseMastrZip(zipPath)
-  .then((result) => {
-    console.log("\n✅ Parsing and database population complete!");
-    console.log(`   Operators: ${result.operators.length}`);
-    console.log(`   PLZ coverage: ${result.plzAggregation.size}`);
-    console.log(`   Winners inserted: ${result.winners.length}`);
+parseMastrToJson(zipPath, outputPath)
+  .then(() => {
+    console.log("\n✅ JSON export complete!");
     process.exit(0);
   })
   .catch((err) => {
-    console.error("❌ Parsing failed:", err);
+    console.error("❌ Export failed:", err);
     process.exit(1);
   });

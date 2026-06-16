@@ -191,3 +191,45 @@ Tests cover the MaStR XML parser, the lookup service, and the HTTP route layer. 
 | `bun run mastr:import <operators.xml> <einheiten.xml>` | Import MaStR data |
 | `bun run test` | Run all tests |
 | `bun run typecheck` | TypeScript type check |
+
+
+Beide Scripts starten vom MaStR-Gesamtexport-ZIP und laufen dieselbe 4-Phasen-Pipeline:
+
+| Script | Befehl | Ausgabe |
+|--------|--------|---------|
+| `src/scripts/parse-mastr.ts` | `bun run mastr:parse <mastr.zip>` | Populiert `grid_lookup_operators` + `zip_operator_mapping` in der DB |
+| `src/scripts/parse-mastr-json.ts` | `bun run mastr:parse-json <mastr.zip> [output.json]` | Schreibt `plz-netzbetreiber.json` für statische SEO-Seiten |
+
+### parse-mastr-json — JSON Export
+
+```bash
+bun run mastr:parse-json /pfad/zu/Gesamtdatenexport.zip ./plz-netzbetreiber.json
+# oder via Env-Vars:
+MASTR_ZIP_PATH=/pfad/zu/export.zip MASTR_JSON_OUTPUT=./data.json bun run mastr:parse-json
+```
+
+Ausgabe-Format (`plz-netzbetreiber.json`):
+
+```json
+{
+  "10115": {
+    "name": "Stromnetz Berlin GmbH",
+    "mastrNummer": "SNB900003602568",
+    "city": "Berlin",
+    "street": "Puschkinallee",
+    "houseNumber": "52A",
+    "zipCode": "12435",
+    "state": "Berlin",
+    "country": "Deutschland",
+    "bdewId": "9900614000000"
+  }
+}
+```
+
+### parse-mastr — DB Import
+
+```bash
+DATABASE_URL=postgresql://... bun run mastr:parse /pfad/zu/Gesamtdatenexport.zip
+```
+
+Voraussetzung: Migration muss gelaufen sein (`bun run db:migrate:grid-lookup`).

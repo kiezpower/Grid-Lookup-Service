@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit",
     "db:migrate": "bun run src/db/migrate.ts",
     "mastr:import": "bun run src/scripts/import-mastr.ts",
+    "mastr:parse": "bun run src/scripts/parse-mastr.ts",
+    "mastr:parse-json": "bun run src/scripts/parse-mastr-json.ts",
     "test": "bun test --isolate"
   },
   "dependencies": {
